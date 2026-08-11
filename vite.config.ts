@@ -7,7 +7,10 @@ export default defineConfig(() => {
   return {
     base: '/ClassTrack/',
     plugins: [react(), tailwindcss()],
-    ...,
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, '.'),
+      },
     },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Classroom } from '../types';
+import { Classroom, UserProfile } from '../types';
 import { DailyAttendance } from './DailyAttendance';
 import { StudentRoster } from './StudentRoster';
 import { AnnouncementsFeed } from './AnnouncementsFeed';
@@ -36,6 +36,7 @@ interface DashboardProps {
   refreshClassrooms: () => void;
   activeTab: MainTabType;
   setActiveTab: (tab: MainTabType) => void;
+  onStartMessage?: (recipient: UserProfile) => void;
 }
 
 const NoClassSelectedPrompt: React.FC<{
@@ -68,6 +69,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   refreshClassrooms,
   activeTab,
   setActiveTab,
+  onStartMessage,
 }) => {
   const { userProfile } = useAuth();
 
@@ -77,13 +79,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="flex flex-col min-h-full">
-      {/* Top Level Navigation Tab Bar - Responsive, No Horizontal Scroll */}
-      <div className="border-b border-zinc-800 bg-zinc-900/80 sticky top-[49px] z-30 backdrop-blur-md">
+      {/* Top Level Navigation Tab Bar - Responsive, Sleek Mobile Scroll Rail */}
+      <div className="border-b border-zinc-800 bg-zinc-900/90 sticky top-[49px] z-30 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2">
-          <nav className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 lg:flex lg:flex-wrap items-center gap-1.5 font-mono text-xs w-full">
+          <nav className="flex items-center gap-1.5 font-mono text-xs w-full overflow-x-auto no-scrollbar py-0.5">
             <button
               onClick={() => setActiveTab('attendance')}
-              className={`px-3 py-2 rounded border font-semibold flex items-center justify-center lg:justify-start gap-1.5 transition-colors ${
+              className={`px-3 py-2 rounded-lg border font-semibold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer min-h-[38px] ${
                 activeTab === 'attendance'
                   ? 'bg-zinc-800 border-zinc-700 text-sky-400'
                   : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
@@ -95,7 +97,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             <button
               onClick={() => setActiveTab('roster')}
-              className={`px-3 py-2 rounded border font-semibold flex items-center justify-center lg:justify-start gap-1.5 transition-colors ${
+              className={`px-3 py-2 rounded-lg border font-semibold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer min-h-[38px] ${
                 activeTab === 'roster'
                   ? 'bg-zinc-800 border-zinc-700 text-sky-400'
                   : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
@@ -104,7 +106,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <Users className="w-3.5 h-3.5 shrink-0" />
               <span>{isTeacher ? 'Roster' : 'Classmates'}</span>
               {selectedClassroom?.studentUids && (
-                <span className="bg-zinc-950 border border-zinc-800 text-zinc-300 px-1 py-0.2 rounded text-[10px] hidden xs:inline-block">
+                <span className="bg-zinc-950 border border-zinc-800 text-zinc-300 px-1.5 py-0.2 rounded text-[10px]">
                   {selectedClassroom.studentUids.length}
                 </span>
               )}
@@ -112,7 +114,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             <button
               onClick={() => setActiveTab('announcements')}
-              className={`px-3 py-2 rounded border font-semibold flex items-center justify-center lg:justify-start gap-1.5 transition-colors ${
+              className={`px-3 py-2 rounded-lg border font-semibold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer min-h-[38px] ${
                 activeTab === 'announcements'
                   ? 'bg-zinc-800 border-zinc-700 text-sky-400'
                   : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
@@ -124,7 +126,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             <button
               onClick={() => setActiveTab('assignments')}
-              className={`px-3 py-2 rounded border font-semibold flex items-center justify-center lg:justify-start gap-1.5 transition-colors ${
+              className={`px-3 py-2 rounded-lg border font-semibold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer min-h-[38px] ${
                 activeTab === 'assignments'
                   ? 'bg-zinc-800 border-zinc-700 text-sky-400'
                   : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
@@ -137,7 +139,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {isTeacher && (
               <button
                 onClick={() => setActiveTab('reports')}
-                className={`px-3 py-2 rounded border font-semibold flex items-center justify-center lg:justify-start gap-1.5 transition-colors ${
+                className={`px-3 py-2 rounded-lg border font-semibold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer min-h-[38px] ${
                   activeTab === 'reports'
                     ? 'bg-zinc-800 border-zinc-700 text-sky-400'
                     : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
@@ -151,7 +153,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {isTeacher && (
               <button
                 onClick={() => setActiveTab('audit')}
-                className={`px-3 py-2 rounded border font-semibold flex items-center justify-center lg:justify-start gap-1.5 transition-colors ${
+                className={`px-3 py-2 rounded-lg border font-semibold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer min-h-[38px] ${
                   activeTab === 'audit'
                     ? 'bg-zinc-800 border-zinc-700 text-sky-400'
                     : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
@@ -164,7 +166,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             <button
               onClick={() => setActiveTab('classes')}
-              className={`px-3 py-2 rounded border font-semibold flex items-center justify-center lg:justify-start gap-1.5 transition-colors lg:ml-auto col-span-2 xs:col-span-1 ${
+              className={`px-3.5 py-2 rounded-lg border font-semibold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer sm:ml-auto min-h-[38px] ${
                 activeTab === 'classes'
                   ? 'bg-sky-950 border-sky-800 text-sky-300'
                   : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800'
@@ -172,7 +174,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             >
               <BookOpen className="w-3.5 h-3.5 text-sky-400 shrink-0" />
               <span>Classes</span>
-              <span className="bg-sky-900/80 text-sky-200 border border-sky-700 px-1 py-0.2 rounded text-[10px]">
+              <span className="bg-sky-900/80 text-sky-200 border border-sky-700 px-1.5 py-0.2 rounded text-[10px]">
                 {classrooms.length}
               </span>
             </button>
@@ -238,6 +240,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <StudentRoster
                   classroom={selectedClassroom}
                   onRosterUpdated={refreshClassrooms}
+                  onStartMessage={onStartMessage}
                 />
               ) : (
                 <NoClassSelectedPrompt
@@ -249,7 +252,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             {activeTab === 'announcements' && (
               selectedClassroom ? (
-                <AnnouncementsFeed classroom={selectedClassroom} />
+                <AnnouncementsFeed
+                  classroom={selectedClassroom}
+                  onStartMessage={onStartMessage}
+                  onClassroomUpdated={refreshClassrooms}
+                />
               ) : (
                 <NoClassSelectedPrompt
                   tabName="Announcements"

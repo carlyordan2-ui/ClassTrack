@@ -23,6 +23,9 @@ import {
   BookOpen,
   CheckCircle2,
   LogOut,
+  Loader2,
+  AlertCircle,
+  Video,
 } from 'lucide-react';
 
 interface ClassesTabProps {
@@ -48,9 +51,13 @@ export const ClassesTab: React.FC<ClassesTabProps> = ({
   const [className, setClassName] = useState('');
   const [section, setSection] = useState('');
   const [subject, setSubject] = useState('');
+  const [meetUrlInput, setMeetUrlInput] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [isJoining, setIsJoining] = useState(false);
 
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
@@ -58,39 +65,100 @@ export const ClassesTab: React.FC<ClassesTabProps> = ({
 
   const isTeacher = userProfile.role === 'teacher';
 
+  const getLocalClasses = (): Classroom[] => {
+    try {
+      const raw = localStorage.getItem('classtrack_custom_classes');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const saveLocalClasses = (list: Classroom[]) => {
+    try {
+      localStorage.setItem('classtrack_custom_classes', JSON.stringify(list));
+    } catch {}
+  };
+
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!className.trim()) return;
 
-    try {
-      const joinCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-      const docRef = await addDoc(collection(db, 'classes'), {
-        name: className.trim(),
-        section: section.trim(),
-        subject: subject.trim(),
-        teacherId: userProfile.uid,
-        teacherName: userProfile.displayName,
-        joinCode,
-        studentUids: [],
-        createdAt: new Date().toISOString(),
-      });
+    setIsCreating(true);
+    setCreateError(null);
 
-      await logAuditEvent(
-        userProfile.uid,
-        userProfile.displayName,
-        userProfile.role,
-        'CLASS_CREATED',
-        `Created class "${className.trim()}" (Code: ${joinCode})`,
-        docRef.id
-      );
+    const trimmedName = className.trim();
+    const trimmedSection = section.trim();
+    const trimmedSubject = subject.trim();
+    const cleanMeetUrl = meetUrlInput.trim()
+      ? (meetUrlInput.trim().startsWith('http') ? meetUrlInput.trim() : `https://${meetUrlInput.trim()}`)
+      : undefined;
+    const joinCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+    const newClassData: Classroom = {
+      id: 'class_' + Date.now(),
+      name: trimmedName,
+      section: trimmedSection,
+      subject: trimmedSubject,
+      teacherId: userProfile.uid,
+      teacherName: userProfile.displayName,
+      joinCode,
+      studentUids: [],
+      meetUrl: cleanMeetUrl,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      try {
+        const docRef = await addDoc(collection(db, 'classes'), {
+          name: trimmedName,
+          section: trimmedSection,
+          subject: trimmedSubject,
+          teacherId: userProfile.uid,
+          teacherName: userProfile.displayName,
+          joinCode,
+          studentUids: [],
+          meetUrl: cleanMeetUrl || '',
+          createdAt: new Date().toISOString(),
+        });
+        newClassData.id = docRef.id;
+      } catch (firestoreErr: any) {
+        console.warn('Firestore direct write failed, backing up to local storage:', firestoreErr);
+      }
+
+      // Save to local custom classes so it is immediately accessible
+      const current = getLocalClasses();
+      saveLocalClasses([newClassData, ...current.filter((c) => c.id !== newClassData.id)]);
+
+      if (cleanMeetUrl) {
+        try {
+          localStorage.setItem(`classtrack_meet_${newClassData.id}`, cleanMeetUrl);
+        } catch {}
+      }
+
+      try {
+        await logAuditEvent(
+          userProfile.uid,
+          userProfile.displayName,
+          userProfile.role,
+          'CLASS_CREATED',
+          `Created class "${trimmedName}" (Code: ${joinCode})`,
+          newClassData.id
+        );
+      } catch (_) {}
 
       setShowCreateModal(false);
       setClassName('');
       setSection('');
       setSubject('');
+      setMeetUrlInput('');
+      onSelectClassroom(newClassData);
       await onRefreshClassrooms();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error creating class:', err);
+      setCreateError(err.message || 'Failed to create classroom. Please try again.');
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -158,10 +226,12 @@ export const ClassesTab: React.FC<ClassesTabProps> = ({
     }
     try {
       await deleteDoc(doc(db, 'classes', classId));
-      await onRefreshClassrooms();
     } catch (err) {
-      console.error('Failed to delete class:', err);
+      console.warn('Firestore delete class notice:', err);
     }
+    const current = getLocalClasses();
+    saveLocalClasses(current.filter((c) => c.id !== classId));
+    await onRefreshClassrooms();
   };
 
   const handleLeaveClass = async (classId: string, name: string) => {
@@ -512,19 +582,56 @@ export const ClassesTab: React.FC<ClassesTabProps> = ({
                 />
               </div>
 
+              <div>
+                <label className="block text-zinc-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                  <Video className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Default Google Meet Link (Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. https://meet.google.com/abc-defg-hij"
+                  value={meetUrlInput}
+                  onChange={(e) => setMeetUrlInput(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-2 text-zinc-100 focus:outline-none focus:border-zinc-600 font-mono"
+                />
+                <p className="text-[10px] text-zinc-500 mt-1">
+                  You can also configure or change this anytime from the Announcements tab.
+                </p>
+              </div>
+
+              {createError && (
+                <div className="flex items-center gap-2 text-red-400 bg-red-950/60 border border-red-900 p-2.5 rounded text-xs">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{createError}</span>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-3 border-t border-zinc-800">
                 <button
                   type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 border border-zinc-700 text-zinc-400 rounded hover:bg-zinc-800"
+                  disabled={isCreating}
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setCreateError(null);
+                  }}
+                  className="px-4 py-2 border border-zinc-700 text-zinc-400 rounded hover:bg-zinc-800 disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-sky-900 hover:bg-sky-800 border border-sky-700 text-sky-100 font-semibold rounded"
+                  id="confirm-create-class-btn"
+                  disabled={isCreating || !className.trim()}
+                  className="px-4 py-2 bg-sky-600 hover:bg-sky-500 border border-sky-500 text-white font-semibold rounded inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
-                  Create Class
+                  {isCreating ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    <span>Create Class</span>
+                  )}
                 </button>
               </div>
             </form>

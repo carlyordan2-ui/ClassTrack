@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Classroom } from '../types';
+import { Classroom, UserProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { DailyAttendance } from './DailyAttendance';
 import { StudentRoster } from './StudentRoster';
@@ -23,11 +23,16 @@ import {
 interface ClassDetailProps {
   classroom: Classroom;
   onBack: () => void;
+  onStartMessage?: (recipient: UserProfile) => void;
 }
 
 type TabType = 'attendance' | 'roster' | 'announcements' | 'assignments' | 'reports' | 'audit';
 
-export const ClassDetail: React.FC<ClassDetailProps> = ({ classroom, onBack }) => {
+export const ClassDetail: React.FC<ClassDetailProps> = ({
+  classroom,
+  onBack,
+  onStartMessage,
+}) => {
   const { userProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('attendance');
   const [copiedCode, setCopiedCode] = useState(false);
@@ -175,9 +180,18 @@ export const ClassDetail: React.FC<ClassDetailProps> = ({ classroom, onBack }) =
       <div>
         {activeTab === 'attendance' && <DailyAttendance classroom={classroom} />}
         {activeTab === 'roster' && (
-          <StudentRoster classroom={classroom} onRosterUpdated={() => {}} />
+          <StudentRoster
+            classroom={classroom}
+            onRosterUpdated={() => {}}
+            onStartMessage={onStartMessage}
+          />
         )}
-        {activeTab === 'announcements' && <AnnouncementsFeed classroom={classroom} />}
+        {activeTab === 'announcements' && (
+          <AnnouncementsFeed
+            classroom={classroom}
+            onStartMessage={onStartMessage}
+          />
+        )}
         {activeTab === 'assignments' && <AssignmentsList classroom={classroom} />}
         {activeTab === 'reports' && isTeacher && <ReportsView classroom={classroom} />}
         {activeTab === 'audit' && isTeacher && <AuditLogView />}
@@ -185,3 +199,4 @@ export const ClassDetail: React.FC<ClassDetailProps> = ({ classroom, onBack }) =
     </div>
   );
 };
+

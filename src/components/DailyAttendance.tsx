@@ -23,6 +23,8 @@ import {
   Check,
   AlertCircle,
   Save,
+  Fingerprint,
+  UserCheck,
 } from 'lucide-react';
 
 interface DailyAttendanceProps {
@@ -31,14 +33,14 @@ interface DailyAttendanceProps {
 
 export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) => {
   const { userProfile } = useAuth();
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [students, setStudents] = useState<StudentInfo[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<
     Record<string, AttendanceRecord>
   >({});
   const [loading, setLoading] = useState(true);
+  const [selfCheckingIn, setSelfCheckingIn] = useState(false);
 
   // Override Modal state
   const [overrideModal, setOverrideModal] = useState<{
@@ -57,27 +59,67 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) =
   if (!userProfile) return null;
 
   const isTeacher = userProfile.role === 'teacher';
+  const isStudent = userProfile.role === 'student';
+  const isBlocked = classroom.blockedStudentUids?.includes(userProfile.uid);
+
+  // Dynamic Session Passcode (Anti-Proxy Check-in)
+  const [sessionPasscode, setSessionPasscode] = useState<string>(() => {
+    return localStorage.getItem(`classtrack_passcode_${classroom.id}_${todayStr}`) || '7429';
+  });
+  const [isCheckInOpen, setIsCheckInOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem(`classtrack_checkin_open_${classroom.id}_${todayStr}`);
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [studentPasscodeInput, setStudentPasscodeInput] = useState('');
+  const [passcodeError, setPasscodeError] = useState<string | null>(null);
+
+  const handleGenerateNewPasscode = () => {
+    const newCode = Math.floor(1000 + Math.random() * 9000).toString();
+    setSessionPasscode(newCode);
+    localStorage.setItem(`classtrack_passcode_${classroom.id}_${todayStr}`, newCode);
+    setStatusMsg(`Generated new session passcode: ${newCode}`);
+    setTimeout(() => setStatusMsg(null), 3500);
+  };
+
+  const handleToggleCheckInOpen = () => {
+    const newState = !isCheckInOpen;
+    setIsCheckInOpen(newState);
+    localStorage.setItem(`classtrack_checkin_open_${classroom.id}_${todayStr}`, String(newState));
+    setStatusMsg(newState ? 'Self check-in opened for students' : 'Self check-in closed');
+    setTimeout(() => setStatusMsg(null), 3000);
+  };
 
   const fetchAttendanceForDate = async (dateStr: string) => {
     setLoading(true);
     try {
-      // Get student profiles from classroom map
+      // Get student profiles from classroom map with chunked Firestore queries
       const uids = classroom.studentUids || [];
       const studentList: StudentInfo[] = [];
 
       if (uids.length > 0) {
-        const qUsers = query(collection(db, 'users'), where('uid', 'in', uids.slice(0, 30)));
-        const userSnap = await getDocs(qUsers);
-        userSnap.forEach((d) => {
-          const u = d.data();
-          studentList.push({
-            uid: u.uid,
-            studentId: u.studentId || classroom.studentsMap?.[u.uid]?.studentId || 'N/A',
-            displayName: u.displayName || 'Student',
-            email: u.email || '',
+        // Chunk UIDs into batches of 30 for Firestore IN queries
+        for (let i = 0; i < uids.length; i += 30) {
+          const chunk = uids.slice(i, i + 30);
+          const qUsers = query(collection(db, 'users'), where('uid', 'in', chunk));
+          const userSnap = await getDocs(qUsers);
+          userSnap.forEach((d) => {
+            const u = d.data();
+            studentList.push({
+              uid: u.uid,
+              studentId: u.studentId || classroom.studentsMap?.[u.uid]?.studentId || 'N/A',
+              displayName: u.displayName || 'Student',
+              email: u.email || '',
+            });
           });
-        });
+        }
       }
+
+      // If any UIDs weren't in user docs but exist in classroom.studentsMap, supplement them
+      uids.forEach((uid) => {
+        if (!studentList.some((s) => s.uid === uid) && classroom.studentsMap?.[uid]) {
+          studentList.push(classroom.studentsMap[uid]);
+        }
+      });
 
       setStudents(studentList);
 
@@ -110,6 +152,69 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) =
     const cur = new Date(selectedDate);
     cur.setDate(cur.getDate() + deltaDays);
     setSelectedDate(cur.toISOString().split('T')[0]);
+  };
+
+  const handleStudentSelfCheckIn = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!isStudent || isBlocked || selfCheckingIn) return;
+
+    if (!isCheckInOpen) {
+      setPasscodeError('Self check-in is currently closed by the instructor.');
+      return;
+    }
+
+    if (sessionPasscode && studentPasscodeInput.trim() !== sessionPasscode.trim()) {
+      setPasscodeError('Invalid 4-digit session code. Please enter the code shown on the classroom board.');
+      return;
+    }
+
+    setPasscodeError(null);
+    setSelfCheckingIn(true);
+
+    try {
+      const attId = `${classroom.id}_${todayStr}_${userProfile.uid}`;
+      const attRef = doc(db, 'attendance', attId);
+      const existingDoc = attendanceRecords[userProfile.uid];
+
+      const newRecord: AttendanceRecord = {
+        id: attId,
+        classId: classroom.id,
+        date: todayStr,
+        studentUid: userProfile.uid,
+        studentId: userProfile.studentId || 'STU-AUTO',
+        studentName: userProfile.displayName,
+        status: 'present',
+        markedByUid: userProfile.uid,
+        markedByName: `${userProfile.displayName} (Verified Self)`,
+        selfCheckIn: true,
+        createdAt: existingDoc?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        overrides: existingDoc?.overrides || [],
+      };
+
+      await setDoc(attRef, newRecord);
+
+      setAttendanceRecords((prev) => ({
+        ...prev,
+        [userProfile.uid]: newRecord,
+      }));
+
+      await logAuditEvent(
+        userProfile.uid,
+        userProfile.displayName,
+        userProfile.role,
+        'SELF_CHECK_IN',
+        `Student verified self-check-in with session code for ${todayStr}.`,
+        classroom.id
+      );
+
+      setStatusMsg('Successfully verified and checked in for today!');
+      setTimeout(() => setStatusMsg(null), 3500);
+    } catch (err) {
+      console.error('Self check-in error:', err);
+      setStatusMsg('Failed to check in. Please check connection.');
+    }
+    setSelfCheckingIn(false);
   };
 
   const handleSetStatus = async (
@@ -149,6 +254,7 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) =
         status: newStatus,
         markedByUid: userProfile.uid,
         markedByName: userProfile.displayName,
+        selfCheckIn: false,
         createdAt: existingDoc?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         overrides: existingDoc?.overrides || [],
@@ -206,6 +312,7 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) =
         status: overrideModal.newStatus,
         markedByUid: userProfile.uid,
         markedByName: userProfile.displayName,
+        selfCheckIn: false,
         createdAt: existingDoc?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         overrides: updatedOverrides,
@@ -306,7 +413,7 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) =
           </button>
 
           <button
-            onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+            onClick={() => setSelectedDate(todayStr)}
             className="px-2.5 py-1.5 rounded border border-zinc-700 hover:bg-zinc-800 text-zinc-300 font-medium text-[11px]"
           >
             Today
@@ -344,36 +451,142 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) =
         </div>
       )}
 
-      {/* Student View Banner */}
+      {/* Teacher Active Session Passcode Card */}
+      {isTeacher && selectedDate === todayStr && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4 font-mono text-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-400 uppercase tracking-wider text-[11px] font-semibold">
+                  Live Classroom Check-In Session:
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                    isCheckInOpen
+                      ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                      : 'bg-red-950 text-red-300 border-red-800'
+                  }`}
+                >
+                  {isCheckInOpen ? 'Active (Open)' : 'Closed'}
+                </span>
+              </div>
+              <p className="text-zinc-400 text-[11px]">
+                Students must enter this 4-digit code in class to verify physical attendance and prevent remote proxy check-ins.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="bg-zinc-950 border border-zinc-700 px-4 py-2 rounded-lg text-center shadow-inner">
+                <span className="text-[10px] uppercase text-zinc-500 block font-semibold">Session PIN</span>
+                <span className="text-lg font-bold text-sky-400 tracking-widest">{sessionPasscode}</span>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleGenerateNewPasscode}
+                  className="px-2.5 py-1 text-[11px] rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-colors"
+                >
+                  Regenerate PIN
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggleCheckInOpen}
+                  className={`px-2.5 py-1 text-[11px] rounded font-medium border transition-colors ${
+                    isCheckInOpen
+                      ? 'bg-red-950 hover:bg-red-900 text-red-300 border-red-800'
+                      : 'bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border-emerald-800'
+                  }`}
+                >
+                  {isCheckInOpen ? 'Close Check-In' : 'Open Check-In'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Student View Banner with Self Check-in button & Passcode Input */}
       {!isTeacher && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 mb-4 font-mono text-xs">
-          <h3 className="text-zinc-400 uppercase tracking-wider text-[11px] mb-2">
-            Your Attendance for {selectedDate}:
-          </h3>
-          {studentViewRecord ? (
-            <div className="flex items-center gap-3">
-              <span
-                className={`px-3 py-1 rounded font-bold uppercase text-sm border ${
-                  studentViewRecord.status === 'present'
-                    ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
-                    : studentViewRecord.status === 'late'
-                    ? 'bg-amber-950 text-amber-400 border-amber-800'
-                    : 'bg-red-950 text-red-400 border-red-800'
-                }`}
-              >
-                {studentViewRecord.status}
-              </span>
-              <span className="text-zinc-400">
-                Marked by {studentViewRecord.markedByName} at{' '}
-                {new Date(studentViewRecord.updatedAt).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-zinc-400 uppercase tracking-wider text-[11px] mb-2">
+                Your Attendance for {selectedDate}:
+              </h3>
+              {studentViewRecord ? (
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`px-3 py-1 rounded font-bold uppercase text-sm border ${
+                      studentViewRecord.status === 'present'
+                        ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
+                        : studentViewRecord.status === 'late'
+                        ? 'bg-amber-950 text-amber-400 border-amber-800'
+                        : 'bg-red-950 text-red-400 border-red-800'
+                    }`}
+                  >
+                    {studentViewRecord.status}
+                  </span>
+                  <span className="text-zinc-400 text-xs">
+                    {studentViewRecord.selfCheckIn ? (
+                      <span className="text-sky-400 flex items-center gap-1">
+                        <Fingerprint className="w-3.5 h-3.5" /> Verified Self Check-In
+                      </span>
+                    ) : (
+                      `Marked by ${studentViewRecord.markedByName}`
+                    )}{' '}
+                    at{' '}
+                    {new Date(studentViewRecord.updatedAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+              ) : (
+                <div className="text-zinc-500 italic">
+                  Attendance not marked for this date yet.
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="text-zinc-500 italic">
-              Attendance not marked for this date yet.
+
+            {/* Self check-in with Passcode Verification for today */}
+            {selectedDate === todayStr && !studentViewRecord && !isBlocked && (
+              <form onSubmit={handleStudentSelfCheckIn} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                {isCheckInOpen ? (
+                  <>
+                    <div>
+                      <input
+                        type="text"
+                        maxLength={4}
+                        placeholder="4-digit PIN"
+                        value={studentPasscodeInput}
+                        onChange={(e) => setStudentPasscodeInput(e.target.value)}
+                        className="w-full sm:w-28 px-3 py-2 bg-zinc-950 border border-zinc-700 rounded text-zinc-100 text-center font-bold tracking-widest placeholder:text-zinc-600 focus:outline-none focus:border-sky-500"
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={selfCheckingIn}
+                      className="px-4 py-2 rounded bg-emerald-900 hover:bg-emerald-800 border border-emerald-700 text-emerald-100 font-bold flex items-center justify-center gap-2 shadow-lg transition-all"
+                    >
+                      <Fingerprint className="w-4 h-4 text-emerald-300" />
+                      {selfCheckingIn ? 'Verifying...' : 'Verify & Check-In'}
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-zinc-500 italic text-[11px] bg-zinc-950 px-3 py-2 rounded border border-zinc-800">
+                    Self check-in is currently closed by instructor
+                  </span>
+                )}
+              </form>
+            )}
+          </div>
+
+          {passcodeError && (
+            <div className="mt-3 p-2 bg-red-950/80 border border-red-800 text-red-300 rounded text-[11px] flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{passcodeError}</span>
             </div>
           )}
         </div>
@@ -407,21 +620,28 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) =
                       <span className="text-zinc-400 text-[11px]">ID: {s.studentId}</span>
                     </div>
 
-                    {status ? (
-                      <span
-                        className={`px-2.5 py-0.5 rounded font-bold text-[10px] uppercase border shrink-0 ${
-                          status === 'present'
-                            ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
-                            : status === 'late'
-                            ? 'bg-amber-950 text-amber-400 border-amber-800'
-                            : 'bg-red-950 text-red-400 border-red-800'
-                        }`}
-                      >
-                        {status}
-                      </span>
-                    ) : (
-                      <span className="text-zinc-500 text-[10px] uppercase shrink-0">Unmarked</span>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {rec?.selfCheckIn && (
+                        <span className="px-1.5 py-0.5 rounded bg-sky-950 text-sky-400 border border-sky-800 text-[9px] uppercase font-bold flex items-center gap-0.5">
+                          <Fingerprint className="w-2.5 h-2.5" /> Self
+                        </span>
+                      )}
+                      {status ? (
+                        <span
+                          className={`px-2.5 py-0.5 rounded font-bold text-[10px] uppercase border shrink-0 ${
+                            status === 'present'
+                              ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
+                              : status === 'late'
+                              ? 'bg-amber-950 text-amber-400 border-amber-800'
+                              : 'bg-red-950 text-red-400 border-red-800'
+                          }`}
+                        >
+                          {status}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-500 text-[10px] uppercase shrink-0">Unmarked</span>
+                      )}
+                    </div>
                   </div>
 
                   {rec?.overrides && rec.overrides.length > 0 && (
@@ -481,7 +701,7 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) =
                   <th className="py-3 px-4">Student ID</th>
                   <th className="py-3 px-4">Student Name</th>
                   <th className="py-3 px-4">Current Status</th>
-                  <th className="py-3 px-4">Override Log</th>
+                  <th className="py-3 px-4">Method / Override</th>
                   {isTeacher && <th className="py-3 px-4 text-right">Attendance Control</th>}
                 </tr>
               </thead>
@@ -512,14 +732,21 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) =
                         )}
                       </td>
                       <td className="py-3 px-4 text-zinc-400 text-[11px]">
-                        {rec?.overrides && rec.overrides.length > 0 ? (
-                          <span className="text-amber-400 inline-flex items-center gap-1 bg-amber-950/40 border border-amber-900/50 px-2 py-0.5 rounded text-[10px]">
-                            <History className="w-3 h-3" />
-                            {rec.overrides.length} override(s)
-                          </span>
-                        ) : (
-                          <span className="text-zinc-600">—</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {rec?.selfCheckIn && (
+                            <span className="text-sky-400 inline-flex items-center gap-1 bg-sky-950/50 border border-sky-900/60 px-1.5 py-0.5 rounded text-[10px]">
+                              <Fingerprint className="w-3 h-3" /> Self Check-in
+                            </span>
+                          )}
+                          {rec?.overrides && rec.overrides.length > 0 ? (
+                            <span className="text-amber-400 inline-flex items-center gap-1 bg-amber-950/40 border border-amber-900/50 px-2 py-0.5 rounded text-[10px]">
+                              <History className="w-3 h-3" />
+                              {rec.overrides.length} override(s)
+                            </span>
+                          ) : !rec?.selfCheckIn ? (
+                            <span className="text-zinc-600">—</span>
+                          ) : null}
+                        </div>
                       </td>
 
                       {isTeacher && (
@@ -634,3 +861,4 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({ classroom }) =
     </div>
   );
 };
+

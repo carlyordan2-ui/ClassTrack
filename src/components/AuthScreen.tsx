@@ -1,18 +1,38 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
-import { AlertCircle, Lock, Mail, User, ShieldCheck } from 'lucide-react';
+import {
+  AlertCircle,
+  Lock,
+  Mail,
+  User,
+  ShieldCheck,
+  GraduationCap,
+  ArrowRight,
+  Loader2,
+  Sun,
+  Moon,
+  CheckCircle2,
+  Calendar,
+  Video,
+  FileText,
+  Eye,
+  EyeOff,
+} from 'lucide-react';
 
 export const AuthScreen: React.FC = () => {
   const {
     signUpWithEmail,
     signInWithEmail,
     signInWithGoogle,
+    theme,
+    toggleTheme,
   } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [role, setRole] = useState<UserRole>('student');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [studentId, setStudentId] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -32,9 +52,9 @@ export const AuthScreen: React.FC = () => {
           throw new Error('Please enter your Student ID.');
         }
         await signUpWithEmail(
-          email,
+          email.trim(),
           password,
-          displayName,
+          displayName.trim(),
           role,
           role === 'student' ? studentId.trim() : undefined
         );
@@ -42,11 +62,25 @@ export const AuthScreen: React.FC = () => {
         if (!email || !password) {
           throw new Error('Please enter email and password.');
         }
-        await signInWithEmail(email, password);
+        await signInWithEmail(email.trim(), password);
       }
     } catch (err: any) {
       console.error('Auth error:', err);
-      setError(err.message || 'Authentication failed. Please check your credentials.');
+      let msg = err.message || 'Authentication failed.';
+      if (
+        err.code === 'auth/invalid-credential' ||
+        err.code === 'auth/user-not-found' ||
+        err.code === 'auth/wrong-password'
+      ) {
+        msg = 'Invalid email or password. If you do not have an account yet, select "Create Account" above.';
+      } else if (err.code === 'auth/email-already-in-use') {
+        msg = 'An account already exists with this email address. Please select "Log In" above.';
+      } else if (err.code === 'auth/weak-password') {
+        msg = 'Password should be at least 6 characters.';
+      } else if (err.code === 'auth/invalid-email') {
+        msg = 'Please enter a valid email address.';
+      }
+      setError(msg);
     }
     setSubmitting(false);
   };
@@ -58,38 +92,106 @@ export const AuthScreen: React.FC = () => {
       await signInWithGoogle(role, role === 'student' ? studentId : undefined);
     } catch (err: any) {
       console.error('Google auth error:', err);
-      setError(err.message || 'Google sign-in failed.');
+      setError(
+        err.message ||
+          'Google authentication failed. Please use Email & Password to sign in or register.'
+      );
     }
     setSubmitting(false);
   };
 
   return (
-    <div className="min-h-screen bg-[#0c0c0e] text-[#e4e4e7] flex flex-col justify-between font-sans overflow-hidden">
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_480px] min-h-[calc(100vh-42px)]">
-        {/* Left Visual Pane */}
-        <div className="dot-grid-bg flex flex-col justify-center p-8 lg:p-20 border-b lg:border-b-0 lg:border-r border-zinc-800/80">
-          <h1 className="font-syne text-5xl sm:text-7xl lg:text-8xl font-extrabold uppercase leading-[0.9] tracking-tighter text-zinc-100 mb-6">
-            Class<br />Track
-          </h1>
-          <p className="text-sm sm:text-base text-zinc-400 max-w-md leading-relaxed">
-            Attendance tracking, student management, and real-time classroom operations for modern schools.
-          </p>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col justify-between font-sans relative">
+      {/* Top Header with Brand and Theme Switcher */}
+      <header className="w-full border-b border-zinc-800/80 bg-zinc-950 px-4 sm:px-8 py-3 flex items-center justify-between z-30 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold font-mono text-sm shadow-xs shrink-0">
+            CT
+          </div>
+          <span className="font-mono text-base sm:text-lg font-bold tracking-tight text-zinc-100">
+            ClassTrack
+          </span>
+          <span className="hidden sm:inline-block text-[10px] font-mono px-2 py-0.5 rounded-full border border-zinc-700 bg-zinc-800/80 text-zinc-300 font-medium">
+            Academic Platform
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900/90 text-zinc-200 hover:text-zinc-100 hover:bg-zinc-800 shadow-xs transition-all cursor-pointer flex items-center gap-2 text-xs font-mono shrink-0"
+          title={`Switch to ${theme === 'dark' ? 'Day Mode' : 'Night Mode'}`}
+        >
+          {theme === 'dark' ? (
+            <Sun className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          ) : (
+            <Moon className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+          )}
+          <span className="font-semibold text-[11px] sm:text-xs">
+            {theme === 'dark' ? 'Day Mode' : 'Night Mode'}
+          </span>
+        </button>
+      </header>
+
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 overflow-x-hidden">
+        {/* Left Visual Hero Pane */}
+        <div className="dot-grid-bg flex flex-col justify-between p-6 sm:p-10 lg:p-12 xl:p-16 border-b lg:border-b-0 lg:border-r border-zinc-800/80 w-full">
+          <div className="space-y-4 lg:space-y-6 my-auto max-w-lg w-full">
+            <div className="space-y-2 lg:space-y-3">
+              <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                <span>Unified Academic Management</span>
+              </div>
+              <h1 className="font-syne text-2xl sm:text-4xl lg:text-3xl xl:text-4xl 2xl:text-5xl font-extrabold uppercase leading-[1.05] tracking-tight text-zinc-100">
+                <span className="block whitespace-nowrap">Classroom</span>
+                <span className="block text-blue-500 whitespace-nowrap">Connected.</span>
+              </h1>
+              <p className="text-xs sm:text-sm lg:text-base text-zinc-400 leading-relaxed font-normal max-w-md">
+                Attendance intelligence, student assignments, persistent Google Meet classrooms, and secure messaging in one unified workspace.
+              </p>
+            </div>
+
+            {/* Feature Pills */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5 pt-1 max-w-md">
+              <div className="flex items-center gap-2.5 p-2 sm:p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 text-xs text-zinc-300">
+                <Calendar className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="truncate">Smart Attendance & QR</span>
+              </div>
+              <div className="flex items-center gap-2.5 p-2 sm:p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 text-xs text-zinc-300">
+                <Video className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="truncate">1-Tap Google Meet Rooms</span>
+              </div>
+              <div className="flex items-center gap-2.5 p-2 sm:p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 text-xs text-zinc-300">
+                <FileText className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="truncate">Assignment Submissions</span>
+              </div>
+              <div className="flex items-center gap-2.5 p-2 sm:p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 text-xs text-zinc-300">
+                <ShieldCheck className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span className="truncate">Role-Based Security</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-xs font-mono text-zinc-500 hidden lg:flex items-center gap-2 pt-4">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Real-time database sync active</span>
+          </div>
         </div>
 
         {/* Right Form Pane */}
-        <div className="bg-[#111113] p-6 sm:p-12 lg:p-14 flex flex-col justify-center overflow-y-auto">
-          {/* Tabs */}
-          <div className="grid grid-cols-2 gap-px bg-zinc-800/50 border border-zinc-800 mb-8">
+        <div className="p-4 sm:p-8 lg:p-10 xl:p-14 flex flex-col justify-center max-w-md sm:max-w-lg mx-auto w-full">
+          {/* Segmented Log In / Sign Up Controls */}
+          <div className="flex p-1 bg-zinc-900 border border-zinc-800 rounded-xl mb-5">
             <button
               type="button"
               onClick={() => {
                 setMode('login');
                 setError(null);
               }}
-              className={`py-3 text-center font-mono text-xs uppercase tracking-wider transition-colors ${
+              className={`flex-1 py-2 text-center text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                 mode === 'login'
-                  ? 'bg-zinc-800/80 text-zinc-100 font-bold'
-                  : 'bg-[#0c0c0e] text-zinc-500 hover:text-zinc-300'
+                  ? 'bg-zinc-800 text-zinc-100 shadow-xs'
+                  : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               Log In
@@ -100,10 +202,10 @@ export const AuthScreen: React.FC = () => {
                 setMode('signup');
                 setError(null);
               }}
-              className={`py-3 text-center font-mono text-xs uppercase tracking-wider transition-colors ${
+              className={`flex-1 py-2 text-center text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                 mode === 'signup'
-                  ? 'bg-zinc-800/80 text-zinc-100 font-bold'
-                  : 'bg-[#0c0c0e] text-zinc-500 hover:text-zinc-300'
+                  ? 'bg-zinc-800 text-zinc-100 shadow-xs'
+                  : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               Create Account
@@ -111,61 +213,63 @@ export const AuthScreen: React.FC = () => {
           </div>
 
           {error && (
-            <div className="mb-6 bg-red-950/60 border border-red-800/80 text-red-300 p-3.5 text-xs font-mono flex items-start gap-2.5">
+            <div className="mb-5 bg-red-950/70 border border-red-800 text-red-300 p-3.5 rounded-xl text-xs flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-              <div>{error}</div>
+              <div className="leading-relaxed">{error}</div>
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Form Fields */}
+          <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'signup' && (
               <>
                 {/* Role Selector */}
                 <div>
-                  <label className="block font-mono text-[0.6rem] uppercase tracking-widest text-zinc-400 mb-2">
-                    Select Role
+                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                    Account Role
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setRole('student')}
-                      className={`py-3 border font-mono text-xs uppercase tracking-wider transition-colors ${
+                      className={`py-2 px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 transition-all cursor-pointer ${
                         role === 'student'
-                          ? 'bg-blue-500/10 border-blue-500 text-blue-400 font-bold'
-                          : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                          ? 'bg-blue-500/10 border-blue-500 text-blue-500 font-bold'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      Student
+                      <GraduationCap className="w-3.5 h-3.5" />
+                      <span>Student</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setRole('teacher')}
-                      className={`py-3 border font-mono text-xs uppercase tracking-wider transition-colors ${
+                      className={`py-2 px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 transition-all cursor-pointer ${
                         role === 'teacher'
-                          ? 'bg-blue-500/10 border-blue-500 text-blue-400 font-bold'
-                          : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                          ? 'bg-blue-500/10 border-blue-500 text-blue-500 font-bold'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      Teacher
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Teacher</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Display Name */}
+                {/* Full Name */}
                 <div>
-                  <label className="block font-mono text-[0.6rem] uppercase tracking-widest text-zinc-400 mb-1.5">
+                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
                     Full Name
                   </label>
                   <div className="relative flex items-center">
-                    <User className="w-3.5 h-3.5 text-zinc-500 absolute left-3" />
+                    <User className="w-4 h-4 text-zinc-400 absolute left-3 pointer-events-none" />
                     <input
                       type="text"
                       required
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       placeholder={role === 'teacher' ? 'Prof. Alex Smith' : 'Jane Doe'}
-                      className="w-full bg-transparent border border-zinc-800 rounded-sm pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-sans"
+                      className="w-full bg-zinc-950 border border-zinc-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all font-sans"
                     />
                   </div>
                 </div>
@@ -173,26 +277,26 @@ export const AuthScreen: React.FC = () => {
                 {/* Student ID */}
                 {role === 'student' && (
                   <div>
-                    <label className="block font-mono text-[0.6rem] uppercase tracking-widest text-zinc-400 mb-1.5">
-                      Student ID
+                    <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                      Student ID Number
                     </label>
                     <input
                       type="text"
                       required
                       value={studentId}
                       onChange={(e) => setStudentId(e.target.value)}
-                      placeholder="e.g. STU-2024-001"
-                      className="w-full bg-transparent border border-zinc-800 rounded-sm px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-sans"
+                      placeholder="e.g. STU-2026-001"
+                      className="w-full bg-zinc-950 border border-zinc-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all font-mono"
                     />
                   </div>
                 )}
 
-                {/* Teacher Approval info */}
+                {/* Teacher Approval notice */}
                 {role === 'teacher' && (
-                  <div className="bg-amber-950/30 border border-amber-900/50 text-amber-300/90 p-3 rounded-sm text-xs font-mono flex items-start gap-2.5 leading-relaxed">
+                  <div className="bg-amber-950/40 border border-amber-800/80 text-amber-300 p-3 rounded-xl text-xs flex items-start gap-2.5 leading-relaxed">
                     <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                     <div>
-                      Teacher accounts require approval from an existing approved teacher or admin before full login privileges are activated.
+                      New teacher accounts require approval from an existing teacher or admin before full teacher permissions are activated.
                     </div>
                   </div>
                 )}
@@ -201,55 +305,79 @@ export const AuthScreen: React.FC = () => {
 
             {/* Email */}
             <div>
-              <label className="block font-mono text-[0.6rem] uppercase tracking-widest text-zinc-400 mb-1.5">
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
                 Email Address
               </label>
               <div className="relative flex items-center">
-                <Mail className="w-3.5 h-3.5 text-zinc-500 absolute left-3" />
+                <Mail className="w-4 h-4 text-zinc-400 absolute left-3 pointer-events-none" />
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="user@school.edu"
-                  className="w-full bg-transparent border border-zinc-800 rounded-sm pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-sans"
+                  placeholder="name@school.edu"
+                  className="w-full bg-zinc-950 border border-zinc-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all font-sans"
                 />
               </div>
             </div>
 
             {/* Password */}
             <div>
-              <label className="block font-mono text-[0.6rem] uppercase tracking-widest text-zinc-400 mb-1.5">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium text-zinc-300">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  {showPassword ? (
+                    <>
+                      <EyeOff className="w-3.5 h-3.5" />
+                      <span className="text-[11px]">Hide</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3.5 h-3.5" />
+                      <span className="text-[11px]">Show</span>
+                    </>
+                  )}
+                </button>
+              </div>
               <div className="relative flex items-center">
-                <Lock className="w-3.5 h-3.5 text-zinc-500 absolute left-3" />
+                <Lock className="w-4 h-4 text-zinc-400 absolute left-3 pointer-events-none" />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-transparent border border-zinc-800 rounded-sm pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-sans"
+                  className="w-full bg-zinc-950 border border-zinc-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl pl-9 pr-10 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all font-sans"
                 />
               </div>
             </div>
 
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={submitting}
-              className="w-full bg-zinc-100 text-zinc-950 hover:bg-zinc-200 border-none py-3.5 font-bold font-mono text-xs uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer mt-2"
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-4 rounded-xl text-sm transition-all shadow-sm hover:shadow-md disabled:opacity-50 cursor-pointer mt-1"
             >
-              {submitting ? 'Processing...' : mode === 'login' ? 'Log In' : 'Register Account'}
+              {submitting
+                ? 'Please wait...'
+                : mode === 'login'
+                ? 'Log In to ClassTrack'
+                : 'Create My Account'}
             </button>
           </form>
 
           {/* Divider */}
-          <div className="text-center my-6 relative">
+          <div className="text-center my-5 relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-zinc-800/80"></div>
+              <div className="w-full border-t border-zinc-800"></div>
             </div>
-            <span className="relative bg-[#111113] px-3 font-mono text-[0.6rem] text-zinc-500 uppercase tracking-widest">
+            <span className="relative bg-zinc-950 px-3 text-[11px] font-mono text-zinc-500 uppercase tracking-wider">
               Or continue with
             </span>
           </div>
@@ -259,7 +387,7 @@ export const AuthScreen: React.FC = () => {
             type="button"
             onClick={handleGoogleSignIn}
             disabled={submitting}
-            className="w-full bg-transparent border border-zinc-800 hover:border-zinc-700 text-zinc-200 py-3 flex items-center justify-center gap-3 font-mono text-xs tracking-wide transition-colors disabled:opacity-50 cursor-pointer"
+            className="w-full bg-zinc-900 hover:bg-zinc-850 border border-zinc-700 hover:border-zinc-600 text-zinc-200 py-2.5 px-4 rounded-xl flex items-center justify-center gap-3 text-xs font-medium transition-all disabled:opacity-50 cursor-pointer shadow-xs"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path
@@ -279,17 +407,16 @@ export const AuthScreen: React.FC = () => {
                 d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.2-6.4-5.2L1.9 16C3.7 19.7 7.5 22.3 12 23z"
               />
             </svg>
-            Google Authentication
+            <span>Continue with Google</span>
           </button>
         </div>
       </div>
 
       {/* Footer */}
-      <footer className="px-6 py-4 border-t border-zinc-800/80 flex flex-wrap justify-between items-center text-xs text-zinc-500 gap-2 bg-[#0c0c0e]">
-        <div>Made by Team Carl</div>
-        <div>&copy; {new Date().getFullYear()} ClassTrack. All rights reserved.</div>
+      <footer className="px-4 sm:px-6 py-3 border-t border-zinc-800/80 flex flex-col sm:flex-row justify-between items-center text-xs text-zinc-500 gap-2 bg-zinc-950 text-center sm:text-left shrink-0">
+        <div>ClassTrack Academic Management System</div>
+        <div>&copy; {new Date().getFullYear()} Team Carl. All rights reserved.</div>
       </footer>
     </div>
   );
 };
-
